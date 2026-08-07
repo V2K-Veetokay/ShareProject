@@ -29,10 +29,7 @@ func main() {
 	}
 	sharedDir = absDir
 
-	// Handle uploads
 	http.HandleFunc("/upload", handleUpload)
-
-	// Handle all requests (files, folders, and directory listing)
 	http.HandleFunc("/", handleRequest)
 
 	localIP, err := getLocalIP()
@@ -61,41 +58,52 @@ func main() {
 	}
 }
 
-// handleRequest handles file downloads, folder navigation, and directory listing
 func handleRequest(w http.ResponseWriter, r *http.Request) {
-	// Sanitize the path
 	requestPath := filepath.Clean(r.URL.Path)
 	if strings.HasPrefix(requestPath, "/") {
 		requestPath = requestPath[1:]
 	}
 
 	fullPath := filepath.Join(sharedDir, requestPath)
-
-	// Security check: ensure the path is within sharedDir
 	absPath, err := filepath.Abs(fullPath)
 	if err != nil || !strings.HasPrefix(absPath, sharedDir) {
 		http.Error(w, "Access denied", http.StatusForbidden)
 		return
 	}
 
-	// Check if path exists
 	info, err := os.Stat(absPath)
 	if err != nil {
 		http.Error(w, "File not found", http.StatusNotFound)
 		return
 	}
 
-	// If it's a file, serve it for download
 	if info.IsDir() {
-		// If it's a directory, show directory listing
 		handleListFiles(w, r, absPath, requestPath)
 	} else {
-		// Serve file for download
 		http.ServeFile(w, r, absPath)
 	}
 }
 
-// handleListFiles lists files and folders with an upload form
+type Item struct {
+	Name  string
+	URL   string
+	IsDir bool
+	Size  string
+}
+
+func formatSize(bytes int64) string {
+	if bytes < 1024 {
+		return fmt.Sprintf("%d B", bytes)
+	}
+	if bytes < 1024*1024 {
+		return fmt.Sprintf("%.1f KB", float64(bytes)/1024)
+	}
+	if bytes < 1024*1024*1024 {
+		return fmt.Sprintf("%.1f MB", float64(bytes)/(1024*1024))
+	}
+	return fmt.Sprintf("%.1f GB", float64(bytes)/(1024*1024*1024))
+}
+
 func handleListFiles(w http.ResponseWriter, r *http.Request, dirPath string, urlPath string) {
 	uploaded := r.URL.Query().Get("uploaded") == "true"
 
@@ -105,26 +113,26 @@ func handleListFiles(w http.ResponseWriter, r *http.Request, dirPath string, url
 		return
 	}
 
-	type Item struct {
-		Name string
-		URL  string
-		IsDir bool
-	}
-
 	var items []Item
 	for _, entry := range entries {
 		itemName := entry.Name()
 		itemURL := filepath.Join("/", urlPath, itemName)
-		itemURL = strings.ReplaceAll(itemURL, "\\", "/") // Windows compatibility
+		itemURL = strings.ReplaceAll(itemURL, "\\", "/")
+
+		size := ""
+		if !entry.IsDir() {
+			info, _ := entry.Info()
+			size = formatSize(info.Size())
+		}
 
 		items = append(items, Item{
 			Name:  itemName,
 			URL:   itemURL,
 			IsDir: entry.IsDir(),
+			Size:  size,
 		})
 	}
 
-	// Determine parent directory URL
 	parentURL := "/"
 	if urlPath != "" && urlPath != "." {
 		parentURL = "/" + filepath.Dir(urlPath)
@@ -133,61 +141,295 @@ func handleListFiles(w http.ResponseWriter, r *http.Request, dirPath string, url
 
 	tmpl := `
 	<!DOCTYPE html>
-	<html>
+	<html lang="en">
 	<head>
+		<meta charset="UTF-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0">
 		<title>File Share</title>
 		<style>
-			body { font-family: sans-serif; padding: 20px; max-width: 800px; margin: 0 auto; }
-			.breadcrumb { margin-bottom: 20px; }
-			.breadcrumb a { color: #007bff; text-decoration: none; }
-			.breadcrumb a:hover { text-decoration: underline; }
-			.item-list { list-style: none; padding: 0; }
-			.item-list li { margin: 8px 0; padding: 8px; border: 1px solid #ddd; border-radius: 3px; }
-			.item-list a { text-decoration: none; color: #007bff; }
-			.item-list a:hover { text-decoration: underline; }
-			.folder { font-weight: bold; }
-			.upload-form { border: 1px solid #ccc; padding: 20px; margin-bottom: 20px; border-radius: 5px; background: #f9f9f9; }
-			.success { color: green; margin-bottom: 10px; font-weight: bold; }
+			* { margin: 0; padding: 0; box-sizing: border-box; }
+
+			body {
+				font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+				background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+				min-height: 100vh;
+				padding: 20px;
+			}
+
+			.container {
+				max-width: 900px;
+				margin: 0 auto;
+				background: white;
+				border-radius: 12px;
+				box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+				overflow: hidden;
+			}
+
+			.header {
+				background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+				color: white;
+				padding: 30px;
+				text-align: center;
+			}
+
+			.header h1 {
+				font-size: 2.5em;
+				margin-bottom: 10px;
+			}
+
+			.breadcrumb {
+				padding: 15px 30px;
+				background: #f8f9fa;
+				border-bottom: 1px solid #e9ecef;
+				font-size: 0.95em;
+			}
+
+			.breadcrumb a {
+				color: #667eea;
+				text-decoration: none;
+				font-weight: 500;
+			}
+
+			.breadcrumb a:hover {
+				text-decoration: underline;
+			}
+
+			.content {
+				padding: 30px;
+			}
+
+			.success-message {
+				background: #d4edda;
+				border: 1px solid #c3e6cb;
+				color: #155724;
+				padding: 12px 15px;
+				border-radius: 6px;
+				margin-bottom: 20px;
+				font-weight: 500;
+			}
+
+			.upload-section {
+				background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+				border: 2px dashed #667eea;
+				border-radius: 8px;
+				padding: 30px;
+				text-align: center;
+				margin-bottom: 30px;
+				transition: all 0.3s ease;
+			}
+
+			.upload-section:hover {
+				border-color: #764ba2;
+				background: linear-gradient(135deg, #f0f3ff 0%, #e0c3ff 100%);
+			}
+
+			.upload-section h3 {
+				margin-bottom: 15px;
+				color: #333;
+				font-size: 1.2em;
+			}
+
+			.upload-form {
+				display: flex;
+				gap: 10px;
+				justify-content: center;
+				flex-wrap: wrap;
+			}
+
+			.upload-form input[type="file"] {
+				padding: 8px 12px;
+				border: 1px solid #667eea;
+				border-radius: 6px;
+				cursor: pointer;
+				background: white;
+			}
+
+			.upload-form button {
+				background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+				color: white;
+				border: none;
+				padding: 10px 25px;
+				border-radius: 6px;
+				cursor: pointer;
+				font-weight: 600;
+				transition: transform 0.2s;
+			}
+
+			.upload-form button:hover {
+				transform: translateY(-2px);
+				box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+			}
+
+			.items-section h2 {
+				margin-bottom: 20px;
+				color: #333;
+				font-size: 1.3em;
+			}
+
+			.items-list {
+				list-style: none;
+			}
+
+			.item {
+				display: flex;
+				align-items: center;
+				justify-content: space-between;
+				padding: 15px;
+				border: 1px solid #e9ecef;
+				border-radius: 8px;
+				margin-bottom: 10px;
+				transition: all 0.3s ease;
+				background: #f8f9fa;
+			}
+
+			.item:hover {
+				background: #f0f3ff;
+				border-color: #667eea;
+				transform: translateX(5px);
+				box-shadow: 0 3px 10px rgba(102, 126, 234, 0.15);
+			}
+
+			.item-left {
+				display: flex;
+				align-items: center;
+				gap: 15px;
+				flex: 1;
+				min-width: 0;
+			}
+
+			.item-icon {
+				font-size: 1.8em;
+				min-width: 30px;
+			}
+
+			.item-name {
+				flex: 1;
+				min-width: 0;
+				word-break: break-word;
+			}
+
+			.item-name a {
+				color: #667eea;
+				text-decoration: none;
+				font-weight: 500;
+				font-size: 1.05em;
+			}
+
+			.item-name a:hover {
+				text-decoration: underline;
+				color: #764ba2;
+			}
+
+			.item-size {
+				color: #666;
+				font-size: 0.9em;
+				min-width: 70px;
+				text-align: right;
+			}
+
+			.empty-state {
+				text-align: center;
+				padding: 40px 20px;
+				color: #999;
+			}
+
+			.empty-state svg {
+				width: 80px;
+				height: 80px;
+				margin-bottom: 20px;
+				opacity: 0.5;
+			}
+
+			.parent-item {
+				background: linear-gradient(135deg, #fff5e6 0%, #ffe6cc 100%);
+				border-color: #ffc107;
+			}
+
+			.parent-item:hover {
+				background: linear-gradient(135deg, #fff9e6 0%, #ffed99 100%);
+				border-color: #ff9800;
+			}
+
+			.parent-item a {
+				color: #ff9800;
+				font-weight: 600;
+			}
+
+			@media (max-width: 600px) {
+				.header h1 { font-size: 1.8em; }
+				.item { flex-direction: column; align-items: flex-start; }
+				.item-size { text-align: left; margin-top: 10px; }
+				.upload-form { flex-direction: column; }
+				.upload-form input, .upload-form button { width: 100%; }
+			}
 		</style>
 	</head>
 	<body>
-		<h1>📂 File Share</h1>
+		<div class="container">
+			<div class="header">
+				<h1>📁 File Share</h1>
+				<p>Share files easily on your local network</p>
+			</div>
 
-		{{if .Success}}
-		<div class="success">✅ File uploaded successfully!</div>
-		{{end}}
+			<div class="breadcrumb">
+				📍 <a href="/">Home</a>{{if .CurrentPath}} / {{.CurrentPath}}{{end}}
+			</div>
 
-		<div class="breadcrumb">
-			📍 <a href="/">Home</a>{{if .CurrentPath}} / {{.CurrentPath}}{{end}}
-		</div>
-
-		<div class="upload-form">
-			<h3>📤 Upload File</h3>
-			<form action="/upload" method="POST" enctype="multipart/form-data">
-				<input type="file" name="file" required>
-				<button type="submit">Upload</button>
-			</form>
-		</div>
-
-		<h2>📂 Contents</h2>
-		{{if .Items}}
-		<ul class="item-list">
-			{{if .ShowParent}}
-			<li><a href="{{.ParentURL}}">📁 .. (Parent Directory)</a></li>
-			{{end}}
-			{{range .Items}}
-			<li>
-				{{if .IsDir}}
-				<span class="folder">📁 <a href="{{.URL}}">{{.Name}}</a></span>
-				{{else}}
-				<span>📄 <a href="{{.URL}}" download>{{.Name}}</a></span>
+			<div class="content">
+				{{if .Success}}
+				<div class="success-message">✅ File uploaded successfully!</div>
 				{{end}}
-			</li>
-			{{end}}
-		</ul>
-		{{else}}
-		<p>This directory is empty.</p>
-		{{end}}
+
+				<div class="upload-section">
+					<h3>📤 Upload a File</h3>
+					<form class="upload-form" action="/upload" method="POST" enctype="multipart/form-data">
+						<input type="file" name="file" required>
+						<button type="submit">Upload</button>
+					</form>
+				</div>
+
+				<div class="items-section">
+					<h2>📂 Contents</h2>
+					{{if .Items}}
+					<ul class="items-list">
+						{{if .ShowParent}}
+						<li class="item parent-item">
+							<div class="item-left">
+								<div class="item-icon">⬆️</div>
+								<div class="item-name">
+									<a href="{{.ParentURL}}">Parent Directory</a>
+								</div>
+							</div>
+						</li>
+						{{end}}
+						{{range .Items}}
+						<li class="item">
+							<div class="item-left">
+								<div class="item-icon">
+									{{if .IsDir}}📁{{else}}📄{{end}}
+								</div>
+								<div class="item-name">
+									{{if .IsDir}}
+									<a href="{{.URL}}">{{.Name}}</a>
+									{{else}}
+									<a href="{{.URL}}" download>{{.Name}}</a>
+									{{end}}
+								</div>
+							</div>
+							{{if .Size}}
+							<div class="item-size">{{.Size}}</div>
+							{{end}}
+						</li>
+						{{end}}
+					</ul>
+					{{else}}
+					<div class="empty-state">
+						<p>📭 This directory is empty</p>
+					</div>
+					{{end}}
+				</div>
+			</div>
+		</div>
 	</body>
 	</html>
 	`
@@ -216,7 +458,6 @@ func handleListFiles(w http.ResponseWriter, r *http.Request, dirPath string, url
 	}
 }
 
-// handleUpload processes the file upload
 func handleUpload(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -257,7 +498,6 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/?uploaded=true", http.StatusSeeOther)
 }
 
-// getLocalIP finds the first non-loopback IPv4 address
 func getLocalIP() (string, error) {
 	interfaces, err := net.Interfaces()
 	if err != nil {
