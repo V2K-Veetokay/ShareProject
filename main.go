@@ -149,25 +149,45 @@ func handleListFiles(w http.ResponseWriter, r *http.Request, dirPath string, url
 		<style>
 			* { margin: 0; padding: 0; box-sizing: border-box; }
 
+			:root {
+				--nord0: #2e3440;
+				--nord1: #3b4252;
+				--nord2: #434c5e;
+				--nord3: #4c566a;
+				--nord4: #d8dee9;
+				--nord5: #e5e9f0;
+				--nord6: #eceff4;
+				--nord7: #8fbcbb;
+				--nord8: #88c0d0;
+				--nord9: #81a1c1;
+				--nord10: #5e81ac;
+				--nord11: #bf616a;
+				--nord12: #d08770;
+				--nord13: #ebcb8b;
+				--nord14: #a3be8c;
+				--nord15: #b48ead;
+			}
+
 			body {
 				font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-				background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+				background: var(--nord0);
 				min-height: 100vh;
 				padding: 20px;
+				color: var(--nord4);
 			}
 
 			.container {
 				max-width: 900px;
 				margin: 0 auto;
-				background: white;
+				background: var(--nord1);
 				border-radius: 12px;
-				box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+				box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
 				overflow: hidden;
 			}
 
 			.header {
-				background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-				color: white;
+				background: linear-gradient(135deg, var(--nord9) 0%, var(--nord10) 100%);
+				color: var(--nord6);
 				padding: 30px;
 				text-align: center;
 			}
@@ -177,20 +197,27 @@ func handleListFiles(w http.ResponseWriter, r *http.Request, dirPath string, url
 				margin-bottom: 10px;
 			}
 
+			.header p {
+				opacity: 0.9;
+				font-size: 0.95em;
+			}
+
 			.breadcrumb {
 				padding: 15px 30px;
-				background: #f8f9fa;
-				border-bottom: 1px solid #e9ecef;
+				background: var(--nord2);
+				border-bottom: 1px solid var(--nord3);
 				font-size: 0.95em;
 			}
 
 			.breadcrumb a {
-				color: #667eea;
+				color: var(--nord8);
 				text-decoration: none;
 				font-weight: 500;
+				transition: color 0.2s;
 			}
 
 			.breadcrumb a:hover {
+				color: var(--nord7);
 				text-decoration: underline;
 			}
 
@@ -199,9 +226,9 @@ func handleListFiles(w http.ResponseWriter, r *http.Request, dirPath string, url
 			}
 
 			.success-message {
-				background: #d4edda;
-				border: 1px solid #c3e6cb;
-				color: #155724;
+				background: rgba(163, 190, 140, 0.2);
+				border: 1px solid var(--nord14);
+				color: var(--nord14);
 				padding: 12px 15px;
 				border-radius: 6px;
 				margin-bottom: 20px;
@@ -209,8 +236,8 @@ func handleListFiles(w http.ResponseWriter, r *http.Request, dirPath string, url
 			}
 
 			.upload-section {
-				background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-				border: 2px dashed #667eea;
+				background: var(--nord2);
+				border: 2px dashed var(--nord8);
 				border-radius: 8px;
 				padding: 30px;
 				text-align: center;
@@ -219,13 +246,13 @@ func handleListFiles(w http.ResponseWriter, r *http.Request, dirPath string, url
 			}
 
 			.upload-section:hover {
-				border-color: #764ba2;
-				background: linear-gradient(135deg, #f0f3ff 0%, #e0c3ff 100%);
+				border-color: var(--nord7);
+				background: var(--nord3);
 			}
 
 			.upload-section h3 {
 				margin-bottom: 15px;
-				color: #333;
+				color: var(--nord6);
 				font-size: 1.2em;
 			}
 
@@ -238,31 +265,47 @@ func handleListFiles(w http.ResponseWriter, r *http.Request, dirPath string, url
 
 			.upload-form input[type="file"] {
 				padding: 8px 12px;
-				border: 1px solid #667eea;
+				border: 1px solid var(--nord8);
 				border-radius: 6px;
 				cursor: pointer;
-				background: white;
+				background: var(--nord1);
+				color: var(--nord4);
+			}
+
+			.upload-form input[type="file"]::file-selector-button {
+				background: var(--nord9);
+				color: var(--nord6);
+				border: none;
+				padding: 8px 16px;
+				border-radius: 4px;
+				cursor: pointer;
+				font-weight: 600;
+				transition: background 0.2s;
+			}
+
+			.upload-form input[type="file"]::file-selector-button:hover {
+				background: var(--nord10);
 			}
 
 			.upload-form button {
-				background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-				color: white;
+				background: linear-gradient(135deg, var(--nord8) 0%, var(--nord9) 100%);
+				color: var(--nord0);
 				border: none;
 				padding: 10px 25px;
 				border-radius: 6px;
 				cursor: pointer;
 				font-weight: 600;
-				transition: transform 0.2s;
+				transition: transform 0.2s, box-shadow 0.2s;
 			}
 
 			.upload-form button:hover {
 				transform: translateY(-2px);
-				box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+				box-shadow: 0 5px 15px rgba(136, 192, 208, 0.3);
 			}
 
 			.items-section h2 {
 				margin-bottom: 20px;
-				color: #333;
+				color: var(--nord6);
 				font-size: 1.3em;
 			}
 
@@ -275,18 +318,18 @@ func handleListFiles(w http.ResponseWriter, r *http.Request, dirPath string, url
 				align-items: center;
 				justify-content: space-between;
 				padding: 15px;
-				border: 1px solid #e9ecef;
+				border: 1px solid var(--nord3);
 				border-radius: 8px;
 				margin-bottom: 10px;
 				transition: all 0.3s ease;
-				background: #f8f9fa;
+				background: var(--nord2);
 			}
 
 			.item:hover {
-				background: #f0f3ff;
-				border-color: #667eea;
+				background: var(--nord3);
+				border-color: var(--nord8);
 				transform: translateX(5px);
-				box-shadow: 0 3px 10px rgba(102, 126, 234, 0.15);
+				box-shadow: 0 3px 10px rgba(136, 192, 208, 0.2);
 			}
 
 			.item-left {
@@ -309,49 +352,44 @@ func handleListFiles(w http.ResponseWriter, r *http.Request, dirPath string, url
 			}
 
 			.item-name a {
-				color: #667eea;
+				color: var(--nord8);
 				text-decoration: none;
 				font-weight: 500;
 				font-size: 1.05em;
+				transition: color 0.2s;
 			}
 
 			.item-name a:hover {
 				text-decoration: underline;
-				color: #764ba2;
+				color: var(--nord7);
 			}
 
 			.item-size {
-				color: #666;
+				color: var(--nord4);
 				font-size: 0.9em;
 				min-width: 70px;
 				text-align: right;
+				opacity: 0.7;
 			}
 
 			.empty-state {
 				text-align: center;
 				padding: 40px 20px;
-				color: #999;
-			}
-
-			.empty-state svg {
-				width: 80px;
-				height: 80px;
-				margin-bottom: 20px;
-				opacity: 0.5;
+				color: var(--nord3);
 			}
 
 			.parent-item {
-				background: linear-gradient(135deg, #fff5e6 0%, #ffe6cc 100%);
-				border-color: #ffc107;
+				background: rgba(191, 97, 106, 0.1);
+				border-color: var(--nord11);
 			}
 
 			.parent-item:hover {
-				background: linear-gradient(135deg, #fff9e6 0%, #ffed99 100%);
-				border-color: #ff9800;
+				background: rgba(191, 97, 106, 0.2);
+				border-color: var(--nord12);
 			}
 
 			.parent-item a {
-				color: #ff9800;
+				color: var(--nord12);
 				font-weight: 600;
 			}
 
