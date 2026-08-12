@@ -1,6 +1,7 @@
 package main
 
 import (
+	"archive/zip"
 	"flag"
 	"fmt"
 	"html/template"
@@ -30,6 +31,7 @@ func main() {
 	sharedDir = absDir
 
 	http.HandleFunc("/upload", handleUpload)
+	http.HandleFunc("/download/", handleDownload) // New handler for ZIP downloads
 	http.HandleFunc("/", handleRequest)
 
 	localIP, err := getLocalIP()
@@ -81,6 +83,96 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 		handleListFiles(w, r, absPath, requestPath)
 	} else {
 		http.ServeFile(w, r, absPath)
+	}
+}
+
+// handleDownload creates a ZIP of a directory and serves it
+func handleDownload(w http.ResponseWriter, r *http.Request) {
+	// Path is /download/some/folder
+	// Remove "/download/" prefix
+	relPath := strings.TrimPrefix(r.URL.Path, "/download/")
+	relPath = filepath.Clean(relPath)
+
+	fullPath := filepath.Join(sharedDir, relPath)
+	absPath, err := filepath.Abs(fullPath)
+	if err != nil || !strings.HasPrefix(absPath, sharedDir) {
+		http.Error(w, "Access denied", http.StatusForbidden)
+		return
+	}
+
+	info, err := os.Stat(absPath)
+	if err != nil {
+		http.Error(w, "Path not found", http.StatusNotFound)
+		return
+	}
+
+	if !info.IsDir() {
+		http.Error(w, "Not a directory", http.StatusBadRequest)
+		return
+	}
+
+	// Create a zip file in memory
+	zipBuf := new(strings.Builder)
+	zipWriter := zip.NewWriter(zipBuf)
+
+	err = filepath.Walk(absPath, func(file string, fi os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if fi.Mode().IsRegular() {
+			// Create a header for the file
+			header, err := zip.FileInfoHeader(fi)
+			if err != nil {
+				return err
+			}
+			// Preserve relative path inside zip
+			header.Name, err = filepath.Rel(absPath, file)
+			if err != nil {
+				return err
+			}
+			// Fix path separators for zip
+			header.Name = filepath.ToSlash(header.Name)
+			// Add directory entry if needed (optional, but good for structure)
+
+			f, err := zipWriter.CreateHeader(header)
+			if err != nil {
+				return err
+			}
+
+			srcFile, err := os.Open(file)
+			if err != nil {
+				return err
+			}
+			defer srcFile.Close()
+
+			if _, err := io.Copy(f, srcFile); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+
+	if err != nil {
+		http.Error(w, "Error creating zip", http.StatusInternalServerError)
+		log.Printf("Error zipping directory: %v", err)
+		return
+	}
+
+	err = zipWriter.Close()
+	if err != nil {
+		http.Error(w, "Error finalizing zip", http.StatusInternalServerError)
+		return
+	}
+
+	// Set headers
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s.zip\"", filepath.Base(relPath)))
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(zipBuf.String())))
+
+	// Write the zip content
+	_, err = w.Write([]byte(zipBuf.String()))
+	if err != nil {
+		log.Printf("Error writing response: %v", err)
 	}
 }
 
@@ -325,7 +417,12 @@ func handleListFiles(w http.ResponseWriter, r *http.Request, dirPath string, url
 				background: var(--nord2);
 			}
 
-			.item:hover {
+			/* File Item: Clickable row */
+			.item.file-item {
+				cursor: pointer;
+			}
+
+			.item.file-item:hover {
 				background: var(--nord3);
 				border-color: var(--nord8);
 				transform: translateX(5px);
@@ -345,10 +442,14 @@ func handleListFiles(w http.ResponseWriter, r *http.Request, dirPath string, url
 				min-width: 30px;
 			}
 
+			/* Ensure item-name takes remaining space and handles flex layout for folder */
 			.item-name {
 				flex: 1;
 				min-width: 0;
 				word-break: break-word;
+				display: flex;
+				align-items: center;
+				gap: 10px; /* Space between name and ZIP button */
 			}
 
 			.item-name a {
@@ -357,6 +458,10 @@ func handleListFiles(w http.ResponseWriter, r *http.Request, dirPath string, url
 				font-weight: 500;
 				font-size: 1.05em;
 				transition: color 0.2s;
+				/* Ensure the folder name link doesn't force wrap incorrectly */
+				white-space: nowrap;
+				overflow: hidden;
+				text-overflow: ellipsis;
 			}
 
 			.item-name a:hover {
@@ -378,19 +483,51 @@ func handleListFiles(w http.ResponseWriter, r *http.Request, dirPath string, url
 				color: var(--nord3);
 			}
 
+			/* Parent Directory Button Styling */
 			.parent-item {
 				background: rgba(191, 97, 106, 0.1);
 				border-color: var(--nord11);
+				cursor: pointer;
 			}
 
 			.parent-item:hover {
 				background: rgba(191, 97, 106, 0.2);
 				border-color: var(--nord12);
+				transform: translateX(5px);
 			}
 
-			.parent-item a {
-				color: var(--nord12);
+			.parent-link {
+				display: flex;
+				align-items: center;
+				gap: 15px;
+				width: 100%;
+				text-decoration: none;
+				color: var(--nord6);
 				font-weight: 600;
+			}
+
+			.parent-link .item-name {
+				justify-content: flex-start; /* Align text left */
+				white-space: nowrap;
+			}
+
+			/* ZIP Download Button Styling */
+			.folder-download {
+				color: var(--nord13);
+				text-decoration: none;
+				font-size: 0.85em;
+				padding: 4px 10px;
+				border: 1px solid var(--nord13);
+				border-radius: 4px;
+				transition: all 0.2s;
+				white-space: nowrap;
+				font-weight: 600;
+				background: rgba(235, 203, 139, 0.1);
+			}
+
+			.folder-download:hover {
+				background: var(--nord13);
+				color: var(--nord0);
 			}
 
 			@media (max-width: 600px) {
@@ -409,9 +546,12 @@ func handleListFiles(w http.ResponseWriter, r *http.Request, dirPath string, url
 				<p>Share files easily on your local network</p>
 			</div>
 
-			<div class="breadcrumb">
-				📍 <a href="/">Home</a>{{if .CurrentPath}} / {{.CurrentPath}}{{end}}
-			</div>
+			<div class="breadcrumb" id="breadcrumb-container">
+    			📍 <a href="/">Home</a>
+       			{{if .CurrentPath}}
+          			<span id="path-segments">{{.CurrentPath}}</span>
+             	{{end}}
+            </div>
 
 			<div class="content">
 				{{if .Success}}
@@ -431,33 +571,42 @@ func handleListFiles(w http.ResponseWriter, r *http.Request, dirPath string, url
 					{{if .Items}}
 					<ul class="items-list">
 						{{if .ShowParent}}
-						<li class="item parent-item">
-							<div class="item-left">
+						<!-- Parent Directory as a full button -->
+						<li class="item parent-item" onclick="window.location.href='{{.ParentURL}}';">
+							<div class="parent-link">
 								<div class="item-icon">⬆️</div>
-								<div class="item-name">
-									<a href="{{.ParentURL}}">Parent Directory</a>
-								</div>
+								<div class="item-name">Parent Directory</div>
 							</div>
 						</li>
 						{{end}}
 						{{range .Items}}
-						<li class="item">
+						{{if .IsDir}}
+						<!-- Folder Item: Entire row clickable + ZIP button -->
+						<li class="item folder-item" onclick="window.location.href='{{.URL}}';">
 							<div class="item-left">
-								<div class="item-icon">
-									{{if .IsDir}}📁{{else}}📄{{end}}
-								</div>
+								<div class="item-icon">📁</div>
 								<div class="item-name">
-									{{if .IsDir}}
-									<a href="{{.URL}}">{{.Name}}</a>
-									{{else}}
-									<a href="{{.URL}}" download>{{.Name}}</a>
-									{{end}}
+									<!-- Text link for accessibility/SEO, but row click handles navigation -->
+									<a href="{{.URL}}" style="text-decoration: none; color: inherit; pointer-events: none;">
+										{{.Name}}
+									</a>
+									<!-- ZIP button: Stop propagation to prevent folder opening -->
+									<a href="/download/{{.URL}}" class="folder-download" onclick="event.stopPropagation();">⬇️ ZIP</a>
 								</div>
 							</div>
-							{{if .Size}}
-							<div class="item-size">{{.Size}}</div>
-							{{end}}
 						</li>
+						{{else}}
+						<!-- File Item: Entire row clickable -->
+						<li class="item file-item" onclick="window.location.href='{{.URL}}';">
+							<div class="item-left">
+								<div class="item-icon">📄</div>
+								<div class="item-name">
+									<a href="{{.URL}}" download>{{.Name}}</a>
+								</div>
+							</div>
+							<div class="item-size">{{.Size}}</div>
+						</li>
+						{{end}}
 						{{end}}
 					</ul>
 					{{else}}
@@ -468,6 +617,36 @@ func handleListFiles(w http.ResponseWriter, r *http.Request, dirPath string, url
 				</div>
 			</div>
 		</div>
+		<script>
+		    document.addEventListener("DOMContentLoaded", function() {
+		        const pathContainer = document.getElementById("path-segments");
+		        const breadcrumbContainer = document.getElementById("breadcrumb-container");
+
+		        if (pathContainer && pathContainer.innerText.trim() !== "") {
+		            const path = pathContainer.innerText;
+		            const segments = path.split('/');
+
+		            let currentPath = "";
+		            let html = '<a href="/">Home</a>';
+
+		            segments.forEach((segment, index) => {
+		                if (segment.trim() !== "") {
+		                    // Build the full path up to this segment
+		                    if (currentPath === "") {
+		                        currentPath = "/" + segment;
+		                    } else {
+		                        currentPath = currentPath + "/" + segment;
+		                    }
+
+		                    // Create link: "Home / folder1 / folder2"
+		                    html += ' / <a href="' + currentPath + '">' + segment + '</a>';
+		                }
+		            });
+
+		            breadcrumbContainer.innerHTML = html;
+		        }
+		    });
+		</script>
 	</body>
 	</html>
 	`
@@ -497,80 +676,80 @@ func handleListFiles(w http.ResponseWriter, r *http.Request, dirPath string, url
 }
 
 func handleUpload(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
 
-	r.ParseMultipartForm(maxUploadSize)
+		r.ParseMultipartForm(maxUploadSize)
 
-	file, handler, err := r.FormFile("file")
-	if err != nil {
-		http.Error(w, "Error retrieving the file", http.StatusBadRequest)
-		log.Printf("Error retrieving file: %v", err)
-		return
-	}
-	defer file.Close()
+		file, handler, err := r.FormFile("file")
+		if err != nil {
+			http.Error(w, "Error retrieving the file", http.StatusBadRequest)
+			log.Printf("Error retrieving file: %v", err)
+			return
+		}
+		defer file.Close()
 
-	filename := filepath.Base(handler.Filename)
-	if !filepath.IsLocal(filename) {
-		http.Error(w, "Invalid filename", http.StatusBadRequest)
-		return
-	}
+		filename := filepath.Base(handler.Filename)
+		if !filepath.IsLocal(filename) {
+			http.Error(w, "Invalid filename", http.StatusBadRequest)
+			return
+		}
 
-	dst, err := os.Create(filepath.Join(sharedDir, filename))
-	if err != nil {
-		http.Error(w, "Error creating file", http.StatusInternalServerError)
-		log.Printf("Error creating file: %v", err)
-		return
-	}
-	defer dst.Close()
+		dst, err := os.Create(filepath.Join(sharedDir, filename))
+		if err != nil {
+			http.Error(w, "Error creating file", http.StatusInternalServerError)
+			log.Printf("Error creating file: %v", err)
+			return
+		}
+		defer dst.Close()
 
-	_, err = io.Copy(dst, file)
-	if err != nil {
-		http.Error(w, "Error saving file", http.StatusInternalServerError)
-		log.Printf("Error saving file: %v", err)
-		return
-	}
+		_, err = io.Copy(dst, file)
+		if err != nil {
+			http.Error(w, "Error saving file", http.StatusInternalServerError)
+			log.Printf("Error saving file: %v", err)
+			return
+		}
 
-	http.Redirect(w, r, "/?uploaded=true", http.StatusSeeOther)
+		http.Redirect(w, r, "/?uploaded=true", http.StatusSeeOther)
 }
 
 func getLocalIP() (string, error) {
-	interfaces, err := net.Interfaces()
-	if err != nil {
-		return "", err
-	}
-
-	for _, iface := range interfaces {
-		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
-			continue
-		}
-
-		addrs, err := iface.Addrs()
+		interfaces, err := net.Interfaces()
 		if err != nil {
-			continue
+			return "", err
 		}
 
-		for _, addr := range addrs {
-			var ip net.IP
-			switch v := addr.(type) {
-			case *net.IPNet:
-				ip = v.IP
-			case *net.IPAddr:
-				ip = v.IP
-			}
-
-			if ip == nil || ip.IsLoopback() {
-				continue
-			}
-			ip = ip.To4()
-			if ip == nil {
+		for _, iface := range interfaces {
+			if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
 				continue
 			}
 
-			return ip.String(), nil
+			addrs, err := iface.Addrs()
+			if err != nil {
+				continue
+			}
+
+			for _, addr := range addrs {
+				var ip net.IP
+				switch v := addr.(type) {
+				case *net.IPNet:
+					ip = v.IP
+				case *net.IPAddr:
+					ip = v.IP
+				}
+
+				if ip == nil || ip.IsLoopback() {
+					continue
+				}
+				ip = ip.To4()
+				if ip == nil {
+					continue
+				}
+
+				return ip.String(), nil
+			}
 		}
-	}
-	return "", fmt.Errorf("no valid IP found")
+		return "", fmt.Errorf("no valid IP found")
 }
